@@ -77,6 +77,7 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
 /* BUTTONS */
 .btn{padding:6px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:700;border:none;transition:opacity .2s}
 .btn:hover{opacity:.85}
+.btn:disabled{opacity:.5;cursor:not-allowed}
 .btn-primary{background:var(--orange);color:#fff}
 .btn-success{background:var(--green);color:#fff}
 .btn-danger{background:var(--red);color:#fff}
@@ -117,6 +118,7 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
 .toast.show{opacity:1;transform:translateY(0)}
 .toast.success{background:var(--green)}
 .toast.warning{background:var(--yellow)}
+.toast.error{background:var(--red)}
 .toast.new-order{background:var(--orange)}
 
 /* NEW ORDER NOTIFICATION */
@@ -131,19 +133,9 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
 .detail-group .detail-label{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
 .detail-group .detail-value{font-size:14px;font-weight:600}
 .order-item-chip{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px}
-.oi-emoji{font-size:22px}
-.oi-name{flex:1;font-weight:500}
-.oi-price{font-weight:700;color:var(--orange)}
 
 /* PRODUCT BADGE */
 .product-badge{background:var(--green);color:#fff;font-size:10px;font-weight:600;padding:1px 7px;border-radius:50px;margin-left:6px}
-
-/* SHIPPER CARD */
-.shipper-assign-card{background:var(--blue-light);border-radius:var(--radius-lg);padding:16px;margin-bottom:20px}
-.shipper-assign-card h4{color:var(--blue);font-weight:700;margin-bottom:12px;font-size:14px}
-
-/* REFRESH INDICATOR */
-.refresh-dot{width:8px;height:8px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;animation:pulse 2s infinite}
 
 @media(max-width:768px){
   .sidebar{display:none}
@@ -154,11 +146,10 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
 </head>
 <body>
 
-<!-- TOP BAR -->
 <div class="topbar">
   <div class="topbar-brand">Bếp<span>Ngon</span> ⚙️ <span style="font-size:12px;opacity:.5;font-weight:400;margin-left:8px">Quản trị viên</span></div>
   <div class="topbar-right">
-    <div style="color:rgba(255,255,255,0.5);font-size:13px"><span class="refresh-dot"></span>Đang đồng bộ live</div>
+    <button class="btn btn-sm" onclick="syncOrders()" id="btnSync" style="background:rgba(255,255,255,0.2);color:#fff">🔄 Làm mới</button>
     <div class="new-order-bell" onclick="goToOrders()">
       <span class="bell-icon">🔔</span>
       <div class="bell-dot" id="bellDot"></div>
@@ -168,7 +159,6 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
 </div>
 
 <div class="main-layout">
-  <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="sidebar-section">Tổng quan</div>
     <button class="sidebar-item active" onclick="showSection('dashboard')"><span class="s-icon">📊</span> Dashboard</button>
@@ -178,22 +168,24 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
     <button class="sidebar-item" onclick="showSection('products')"><span class="s-icon">🍜</span> Sản phẩm</button>
   </div>
 
-  <!-- CONTENT -->
-  <div class="content" id="mainContent"></div>
+  <div class="content" id="mainContent">
+    <div style="text-align:center;padding:100px 0;">
+      <h3 style="color:var(--text-muted)">Đang tải dữ liệu từ Google Sheet...</h3>
+    </div>
+  </div>
 </div>
 
-<!-- MODAL -->
 <div class="modal-overlay hidden" id="modalOverlay">
   <div class="modal-box" id="modalBox"></div>
 </div>
 
-<!-- TOAST -->
 <div class="toast" id="toast"></div>
 
 <script>
-// ====== CONSTANTS ======
-const STORAGE_KEY = 'bepngon_orders';
+// ====== CONFIG & CONSTANTS ======
+const API_URL = 'https://sheetdb.io/api/v1/93k3mwsdbcu6b';
 const PRODUCTS_KEY = 'bepngon_products';
+
 const STATUSES = {
   pending:    {label:'Chờ xác nhận',    cls:'s-pending',    icon:'⏳'},
   confirmed:  {label:'Đã xác nhận',     cls:'s-cooking',    icon:'✅'},
@@ -204,35 +196,33 @@ const STATUSES = {
   cancelled:  {label:'Đã huỷ',           cls:'s-cancelled',  icon:'❌'}
 };
 
+const STATUS_VI = {
+  pending: 'Chờ xác nhận',
+  confirmed: 'Đã xác nhận',
+  cooking: 'Đang nấu',
+  shipper: 'Shipper đã nhận',
+  delivering: 'Đang giao hàng',
+  delivered: 'Đã giao',
+  cancelled: 'Đã huỷ'
+};
+
 const DEFAULT_PRODUCTS = [
-  {id:1, name:'Phở Bò Tái',         desc:'Phở Nam bộ truyền thống, nước dùng 8 tiếng',    price:65000, emoji:'🍜', cat:'Phở & Bún',    badge:'Bán chạy'},
-  {id:2, name:'Bún Bò Huế',         desc:'Cay nồng đặc trưng, thịt bò mềm',               price:55000, emoji:'🍲', cat:'Phở & Bún',    badge:''},
-  {id:3, name:'Cơm Tấm Sườn',       desc:'Sườn nướng than hoa, cơm tấm dẻo thơm',         price:70000, emoji:'🍚', cat:'Cơm',          badge:'Bán chạy'},
-  {id:4, name:'Cơm Gà Hội An',      desc:'Gà ta luộc, cơm nấu nước dùng gà',              price:75000, emoji:'🍗', cat:'Cơm',          badge:''},
-  {id:5, name:'Bánh Mì Thịt Nướng', desc:'Bánh mì nóng giòn, thịt nướng mật ong',         price:35000, emoji:'🥖', cat:'Bánh mì',      badge:'Mới'},
-  {id:6, name:'Hủ Tiếu Nam Vang',   desc:'Hủ tiếu dai, thịt băm, tôm tươi',               price:60000, emoji:'🍝', cat:'Phở & Bún',    badge:''},
-  {id:7, name:'Bò Lúc Lắc',         desc:'Bò Mỹ thăn lưng, xào hành tây',                 price:120000,emoji:'🥩', cat:'Món xào',      badge:'Premium'},
-  {id:8, name:'Trà Sữa Trân Châu',  desc:'Trà sữa Đài Loan, trân châu đường đen',          price:45000, emoji:'🧋', cat:'Đồ uống',      badge:''},
-  {id:9, name:'Nước Mía Sầu Riêng', desc:'Nước mía tươi kết hợp sầu riêng nguyên chất',   price:35000, emoji:'🥤', cat:'Đồ uống',      badge:''},
-  {id:10,name:'Gỏi Cuốn Tôm Thịt', desc:'Gỏi cuốn tươi, tôm sú, thịt luộc, rau thơm',   price:50000, emoji:'🌯', cat:'Khai vị',      badge:''},
-  {id:11,name:'Chả Giò Rế',         desc:'Chả giò giòn rụm, nhân thịt cua',               price:55000, emoji:'🥟', cat:'Khai vị',      badge:'Bán chạy'},
-  {id:12,name:'Chè Đậu Xanh',       desc:'Chè đậu xanh nấu cốt dừa, ăn nóng hoặc lạnh',  price:25000, emoji:'🍧', cat:'Tráng miệng',  badge:''},
+  {id:1, name:'Phở Bò Tái',         desc:'Phở Nam bộ truyền thống', price:65000, emoji:'🍜', cat:'Phở & Bún',    badge:'Bán chạy'},
+  {id:2, name:'Cơm Tấm Sườn',       desc:'Sườn nướng than hoa',     price:70000, emoji:'🍚', cat:'Cơm',          badge:'Bán chạy'}
 ];
 
-// ====== STATE ======
+// ====== GLOBAL STATE ======
+let globalOrders = [];
 let currentSection = 'dashboard';
 let newOrderIds = new Set();
-let lastOrderCount = 0;
+let isSyncing = false;
 
-// ====== STORAGE ======
-function getOrders(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); }catch(e){return [];} }
-function saveOrders(orders){ localStorage.setItem(STORAGE_KEY, JSON.stringify(orders)); }
+// ====== STORAGE (Products keeps using LocalStorage for simplicity) ======
 function getProducts(){ try{ return JSON.parse(localStorage.getItem(PRODUCTS_KEY)||'null') || DEFAULT_PRODUCTS; }catch(e){ return DEFAULT_PRODUCTS; } }
 function saveProducts(p){ localStorage.setItem(PRODUCTS_KEY, JSON.stringify(p)); }
 
 // ====== UTILS ======
 function fmt(n){ return new Intl.NumberFormat('vi-VN').format(n) + 'đ'; }
-function timestamp(){ return new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}); }
 function showToast(msg, type=''){
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast'+(type?' '+type:'');
@@ -241,6 +231,100 @@ function showToast(msg, type=''){
 }
 function openModal(html){ document.getElementById('modalBox').innerHTML=html; document.getElementById('modalOverlay').classList.remove('hidden'); }
 function closeModal(){ document.getElementById('modalOverlay').classList.add('hidden'); }
+
+// ====== API FETCH (GOOGLE SHEET) ======
+function sheetToOrder(row) {
+  let statusKey = 'pending';
+  Object.keys(STATUS_VI).forEach(key => {
+    if(row.trang_thai === STATUS_VI[key]) statusKey = key;
+  });
+
+  return {
+    id: row.id,
+    customer: row.khach_hang,
+    phone: row.sdt,
+    address: row.dia_chi,
+    itemsText: row.chi_tiet_mon,
+    totalAmount: parseInt(row.tong_tien) || 0,
+    note: row.ghi_chu,
+    time: row.thoi_gian,
+    status: statusKey,
+    shipper: row.shipper || ''
+  };
+}
+
+async function syncOrders() {
+  if(isSyncing) return;
+  isSyncing = true;
+  document.getElementById('btnSync').textContent = '⏳ Đang tải...';
+
+  try {
+    const res = await fetch(API_URL);
+    const data = await res.json();
+    const fetchedOrders = data.map(sheetToOrder).reverse(); // Mới nhất lên đầu
+    
+    // Phát hiện đơn mới
+    const currentIds = new Set(fetchedOrders.map(o=>o.id));
+    const prevIds = new Set(globalOrders.map(o=>o.id));
+    let hasNew = false;
+    
+    fetchedOrders.forEach(o => {
+      if(!prevIds.has(o.id) && globalOrders.length > 0) {
+        newOrderIds.add(o.id);
+        hasNew = true;
+      }
+    });
+
+    if(hasNew) {
+      showToast(`🔔 Có đơn hàng mới!`, 'new-order');
+    }
+
+    globalOrders = fetchedOrders;
+    updateBadges();
+    renderSection();
+
+  } catch (error) {
+    console.error("Lỗi đồng bộ:", error);
+    showToast('Lỗi khi tải dữ liệu từ Sheet!', 'error');
+  } finally {
+    isSyncing = false;
+    document.getElementById('btnSync').textContent = '🔄 Làm mới';
+  }
+}
+
+// Cập nhật trạng thái ngược lên Google Sheet
+async function updateStatus(id, status, shipperName) {
+  const bodyData = { trang_thai: STATUS_VI[status] };
+  if(shipperName !== undefined) bodyData.shipper = shipperName;
+
+  showToast('Đang lưu thay đổi...', 'warning');
+
+  try {
+    await fetch(`${API_URL}/id/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ data: bodyData })
+    });
+    
+    // Cập nhật giao diện lập tức
+    const o = globalOrders.find(x => x.id === id);
+    if(o){
+      o.status = status;
+      if(shipperName !== undefined) o.shipper = shipperName;
+    }
+    
+    renderSection();
+    updateBadges();
+    showToast(`✅ Đã lưu thay đổi`, 'success');
+
+  } catch (e) {
+    console.error("Lỗi cập nhật API:", e);
+    showToast('Cập nhật thất bại!', 'error');
+  }
+}
 
 // ====== SECTION NAV ======
 function showSection(sec){
@@ -261,12 +345,13 @@ function renderSection(){
 }
 
 function updateBadges(){
-  const orders = getOrders();
-  const pending = orders.filter(o=>o.status==='pending').length;
+  const pending = globalOrders.filter(o=>o.status==='pending').length;
   document.getElementById('pendingBadge').textContent = pending + ' đơn chờ';
+  
   const sb = document.getElementById('sidebarPendingBadge');
   if(pending>0){ sb.style.display='inline'; sb.textContent=pending; }
   else { sb.style.display='none'; }
+  
   const bell = document.getElementById('bellDot');
   if(newOrderIds.size>0) bell.classList.add('show');
   else bell.classList.remove('show');
@@ -274,20 +359,18 @@ function updateBadges(){
 
 // ====== DASHBOARD ======
 function renderDashboard(){
-  const orders = getOrders();
-  const pending = orders.filter(o=>o.status==='pending').length;
-  const cooking = orders.filter(o=>['confirmed','cooking'].includes(o.status)).length;
-  const delivering = orders.filter(o=>['shipper','delivering'].includes(o.status)).length;
-  const delivered = orders.filter(o=>o.status==='delivered').length;
-  const revenue = orders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+o.items.reduce((ss,i)=>ss+i.price*i.qty,0)+20000,0);
+  const pending = globalOrders.filter(o=>o.status==='pending').length;
+  const cooking = globalOrders.filter(o=>['confirmed','cooking'].includes(o.status)).length;
+  const delivering = globalOrders.filter(o=>['shipper','delivering'].includes(o.status)).length;
+  const delivered = globalOrders.filter(o=>o.status==='delivered').length;
+  const revenue = globalOrders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+o.totalAmount,0);
   
   const newBanners = [...newOrderIds].map(id=>{
-    const o = orders.find(x=>x.id===id);
+    const o = globalOrders.find(x=>x.id===id);
     if(!o) return '';
-    const total = o.items.reduce((s,i)=>s+i.price*i.qty,0)+20000;
     return `<div class="new-order-banner" onclick="openOrderModal('${id}')">
       <div class="nob-icon">🔔</div>
-      <div class="nob-text"><div class="nob-title">Đơn mới: ${id} — ${o.customer}</div><div class="nob-sub">${o.items.map(i=>i.emoji+' '+i.name).join(', ')} • ${fmt(total)}</div></div>
+      <div class="nob-text"><div class="nob-title">Đơn mới: ${id} — ${o.customer}</div><div class="nob-sub">${o.itemsText} • ${fmt(o.totalAmount)}</div></div>
       <div style="font-size:13px;font-weight:700;padding:6px 14px;background:rgba(255,255,255,0.2);border-radius:6px">Xử lý →</div>
     </div>`;
   }).join('');
@@ -299,7 +382,7 @@ function renderDashboard(){
       <div class="stat-card"><div class="stat-label">⏳ Chờ xác nhận</div><div class="stat-value orange">${pending}</div></div>
       <div class="stat-card"><div class="stat-label">👨‍🍳 Đang nấu</div><div class="stat-value" style="color:#E67E22">${cooking}</div></div>
       <div class="stat-card"><div class="stat-label">🚴 Đang giao</div><div class="stat-value blue">${delivering}</div></div>
-      <div class="stat-card"><div class="stat-label">✅ Đã giao hôm nay</div><div class="stat-value green">${delivered}</div></div>
+      <div class="stat-card"><div class="stat-label">✅ Đã giao</div><div class="stat-value green">${delivered}</div></div>
       <div class="stat-card"><div class="stat-label">💰 Doanh thu</div><div class="stat-value green" style="font-size:18px">${fmt(revenue)}</div></div>
     </div>
     <div class="admin-card">
@@ -309,14 +392,13 @@ function renderDashboard(){
       </div>
       <table class="data-table">
         <thead><tr><th>Mã đơn</th><th>Khách</th><th>Món</th><th>Tổng</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
-        <tbody>${orders.slice(0,6).map(o=>{
-          const s = STATUSES[o.status];
-          const total = o.items.reduce((ss,i)=>ss+i.price*i.qty,0)+20000;
+        <tbody>${globalOrders.slice(0,6).map(o=>{
+          const s = STATUSES[o.status] || STATUSES['pending'];
           return `<tr>
             <td><strong>${o.id}</strong><br><span style="font-size:11px;color:var(--text-muted)">${o.time}</span></td>
             <td>${o.customer}</td>
-            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.items.map(i=>i.emoji+' '+i.name).join(', ')}</td>
-            <td class="td-price">${fmt(total)}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.itemsText}</td>
+            <td class="td-price">${fmt(o.totalAmount)}</td>
             <td><span class="status-pill ${s.cls}">${s.icon} ${s.label}</span></td>
             <td><button class="btn btn-info btn-sm" onclick="openOrderModal('${o.id}')">Xem</button></td>
           </tr>`;
@@ -328,45 +410,42 @@ function renderDashboard(){
 
 // ====== ORDERS ======
 function renderOrders(){
-  const orders = getOrders();
   const filterBtns = ['Tất cả','pending','confirmed','cooking','shipper','delivering','delivered','cancelled'];
   
   document.getElementById('mainContent').innerHTML = `
-    <div class="page-title">📋 Quản lý đơn hàng <span style="font-size:14px;font-weight:500;color:var(--text-muted)">(${orders.length} đơn)</span></div>
+    <div class="page-title">📋 Quản lý đơn hàng <span style="font-size:14px;font-weight:500;color:var(--text-muted)">(${globalOrders.length} đơn)</span></div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
       ${filterBtns.map((f,i)=>{
         const label = f==='Tất cả'?'Tất cả':`${STATUSES[f]?.icon} ${STATUSES[f]?.label}`;
-        const count = f==='Tất cả'?orders.length:orders.filter(o=>o.status===f).length;
+        const count = f==='Tất cả'?globalOrders.length:globalOrders.filter(o=>o.status===f).length;
         return `<button onclick="filterOrderTable('${f}')" id="filter-${f}" class="btn ${i===0?'btn-primary':'btn-sm'}" style="border:1.5px solid var(--gray-border);${i!==0?'background:#fff;color:var(--text);':''}">${label} <span style="opacity:.7">(${count})</span></button>`;
       }).join('')}
     </div>
     <div class="admin-card">
       <table class="data-table" id="ordersTable">
         <thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Địa chỉ</th><th>Món đặt</th><th>Tổng</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
-        <tbody id="ordersTableBody">${renderOrderRows(orders)}</tbody>
+        <tbody id="ordersTableBody">${renderOrderRows(globalOrders)}</tbody>
       </table>
     </div>
   `;
 }
 
 function filterOrderTable(filter){
-  const orders = getOrders();
-  const filtered = filter==='Tất cả' ? orders : orders.filter(o=>o.status===filter);
+  const filtered = filter==='Tất cả' ? globalOrders : globalOrders.filter(o=>o.status===filter);
   document.getElementById('ordersTableBody').innerHTML = renderOrderRows(filtered);
 }
 
 function renderOrderRows(orders){
   if(orders.length===0) return `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted)">Không có đơn hàng nào</td></tr>`;
   return orders.map(o=>{
-    const s = STATUSES[o.status];
-    const total = o.items.reduce((ss,i)=>ss+i.price*i.qty,0)+20000;
+    const s = STATUSES[o.status] || STATUSES['pending'];
     const isNew = newOrderIds.has(o.id);
     return `<tr style="${isNew?'background:rgba(255,107,53,0.05);':''}">
       <td><strong>${o.id}</strong>${isNew?` <span style="background:var(--red);color:#fff;font-size:10px;padding:1px 6px;border-radius:50px">MỚI</span>`:''}<br><span style="font-size:11px;color:var(--text-muted)">${o.time}</span></td>
       <td><div style="font-weight:600">${o.customer}</div><div style="font-size:11px;color:var(--text-muted)">${o.phone}</div></td>
       <td style="max-width:150px;font-size:12px">📍 ${o.address}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${o.items.map(i=>i.emoji+' '+i.name).join(', ')}</td>
-      <td class="td-price">${fmt(total)}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${o.itemsText}</td>
+      <td class="td-price">${fmt(o.totalAmount)}</td>
       <td><span class="status-pill ${s.cls}">${s.icon} ${s.label}</span></td>
       <td class="td-actions">
         <button class="btn btn-info btn-sm" onclick="openOrderModal('${o.id}')">Chi tiết</button>
@@ -380,16 +459,13 @@ function renderOrderRows(orders){
 
 function quickStatus(id, status){
   updateStatus(id, status);
-  renderSection();
 }
 
 // ====== ORDER MODAL ======
 function openOrderModal(id){
-  const orders = getOrders();
-  const o = orders.find(x=>x.id===id);
+  const o = globalOrders.find(x=>x.id===id);
   if(!o) return;
-  const total = o.items.reduce((ss,i)=>ss+i.price*i.qty,0)+20000;
-  const s = STATUSES[o.status];
+  const s = STATUSES[o.status] || STATUSES['pending'];
   
   openModal(`
     <h3>Chi tiết đơn ${o.id} <span class="status-pill ${s.cls}">${s.icon} ${s.label}</span></h3>
@@ -399,12 +475,17 @@ function openOrderModal(id){
       <div class="detail-group" style="grid-column:1/-1"><div class="detail-label">Địa chỉ giao hàng</div><div class="detail-value">📍 ${o.address}</div></div>
       ${o.note?`<div class="detail-group" style="grid-column:1/-1"><div class="detail-label">Ghi chú</div><div class="detail-value" style="color:var(--orange)">"${o.note}"</div></div>`:''}
     </div>
+    
     <div style="border-top:1px solid var(--gray-border);padding:14px 0;margin-bottom:14px">
-      ${o.items.map(i=>`<div class="order-item-chip"><span class="oi-emoji">${i.emoji}</span><span class="oi-name">${i.name} × ${i.qty}</span><span class="oi-price">${fmt(i.price*i.qty)}</span></div>`).join('')}
+      <div class="detail-group" style="grid-column:1/-1">
+        <div class="detail-label">Chi tiết món đã đặt</div>
+        <div class="detail-value" style="font-size:14px; margin-bottom: 8px;">${o.itemsText}</div>
+      </div>
       <div style="border-top:1px solid var(--gray-border);padding-top:10px;margin-top:8px;display:flex;justify-content:space-between;font-weight:700;font-size:15px">
-        <span>Tổng cộng</span><span style="color:var(--orange)">${fmt(total)}</span>
+        <span>Tổng thanh toán</span><span style="color:var(--orange)">${fmt(o.totalAmount)}</span>
       </div>
     </div>
+
     <div class="form-group">
       <label>Cập nhật trạng thái đơn hàng</label>
       <select id="statusModal" style="padding:10px;font-family:inherit;font-size:14px;border:1.5px solid var(--gray-border);border-radius:var(--radius);width:100%;background:#fff">
@@ -412,11 +493,8 @@ function openOrderModal(id){
       </select>
     </div>
     <div class="form-group">
-      <label>Tên shipper</label>
+      <label>Tên shipper (Nếu giao hàng)</label>
       <input type="text" id="shipperModal" value="${o.shipper||''}" placeholder="Nhập tên shipper để giao hàng...">
-    </div>
-    <div style="background:var(--blue-light);padding:12px;border-radius:var(--radius);font-size:12px;color:var(--blue);margin-bottom:4px">
-      💡 Khi lưu, bên khách hàng sẽ thấy trạng thái mới ngay lập tức (cập nhật mỗi 2 giây).
     </div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Đóng</button>
@@ -430,35 +508,18 @@ function saveOrderModal(id){
   const shipper = document.getElementById('shipperModal').value.trim();
   updateStatus(id, newStatus, shipper);
   closeModal();
-  renderSection();
-  showToast(`✅ Đơn ${id} → ${STATUSES[newStatus].label}`, 'success');
-}
-
-function updateStatus(id, status, shipper){
-  const orders = getOrders();
-  const o = orders.find(x=>x.id===id);
-  if(!o) return;
-  o.status = status;
-  if(shipper !== undefined) o.shipper = shipper;
-  if(!o.statusHistory) o.statusHistory = [];
-  if(!o.statusHistory.find(h=>h.status===status)){
-    o.statusHistory.push({status, time: timestamp()});
-  }
-  saveOrders(orders);
-  updateBadges();
 }
 
 // ====== SHIPPING ======
 function renderShipping(){
-  const orders = getOrders();
-  const needsShipper = orders.filter(o=>['cooking','confirmed'].includes(o.status));
-  const onTheWay = orders.filter(o=>['shipper','delivering'].includes(o.status));
-  const donedToday = orders.filter(o=>o.status==='delivered');
+  const needsShipper = globalOrders.filter(o=>['cooking','confirmed'].includes(o.status));
+  const onTheWay = globalOrders.filter(o=>['shipper','delivering'].includes(o.status));
+  const donedToday = globalOrders.filter(o=>o.status==='delivered');
 
   document.getElementById('mainContent').innerHTML = `
     <div class="page-title">🚴 Quản lý giao hàng</div>
     <div class="stats-row">
-      <div class="stat-card"><div class="stat-label">⏳ Cần phân công shipper</div><div class="stat-value orange">${needsShipper.length}</div></div>
+      <div class="stat-card"><div class="stat-label">⏳ Cần phân công</div><div class="stat-value orange">${needsShipper.length}</div></div>
       <div class="stat-card"><div class="stat-label">🏍️ Đang trên đường</div><div class="stat-value blue">${onTheWay.length}</div></div>
       <div class="stat-card"><div class="stat-label">✅ Giao thành công</div><div class="stat-value green">${donedToday.length}</div></div>
     </div>
@@ -515,11 +576,10 @@ function assignAndDispatch(id){
   const name = document.getElementById('sh-'+id)?.value.trim();
   if(!name){ showToast('Nhập tên shipper trước!', 'warning'); return; }
   updateStatus(id, 'shipper', name);
-  renderSection();
-  showToast(`🚴 Đã giao cho shipper ${name}`, 'success');
 }
 
 // ====== PRODUCTS ======
+// Note: Quản lý sản phẩm tạm thời vẫn sử dụng LocalStorage do SheetDB yêu cầu cấu hình thêm 1 tab riêng biệt.
 function renderProducts(){
   const products = getProducts();
   document.getElementById('mainContent').innerHTML = `
@@ -658,52 +718,12 @@ function deleteProduct(id){
   showToast('Đã xoá sản phẩm!');
 }
 
-// ====== LIVE POLLING (detect new orders from customer) ======
-let pollingOrders = [];
+// ====== KHỞI CHẠY LẦN ĐẦU ======
+syncOrders();
 
-function pollForNewOrders(){
-  const orders = getOrders();
-  // Detect newly added orders
-  const currentIds = new Set(orders.map(o=>o.id));
-  const prevIds = new Set(pollingOrders.map(o=>o.id));
-  
-  let hasNew = false;
-  orders.forEach(o=>{
-    if(!prevIds.has(o.id)){
-      newOrderIds.add(o.id);
-      hasNew = true;
-    }
-  });
-  
-  if(hasNew && pollingOrders.length > 0){
-    const count = [...newOrderIds].length;
-    showToast(`🔔 Có ${count} đơn hàng mới!`, 'new-order');
-    document.getElementById('bellDot').classList.add('show');
-  }
-  
-  pollingOrders = orders;
-  updateBadges();
-  
-  // Auto-refresh current view if on orders or shipping
-  if(currentSection === 'dashboard') renderDashboard();
-  else if(currentSection === 'orders') renderOrders();
-  else if(currentSection === 'shipping') renderShipping();
-}
+// Tự động kiểm tra đơn mới mỗi 15 giây (Tránh bị giới hạn API)
+setInterval(syncOrders, 15000);
 
-// Listen for storage events (cross-tab from customer page)
-window.addEventListener('storage', (e)=>{
-  if(e.key === STORAGE_KEY || e.key === 'bepngon_new_order'){
-    pollForNewOrders();
-  }
-});
-
-// Also poll every 3 seconds as fallback
-setInterval(pollForNewOrders, 3000);
-
-// ====== INIT ======
-pollingOrders = getOrders();
-renderDashboard();
-updateBadges();
 </script>
 </body>
 </html>
