@@ -183,7 +183,8 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
 
 <script>
 // ====== CONFIG & CONSTANTS ======
-const API_URL = 'https://sheetdb.io/api/v1/93k3mwsdbcu6b';
+// Đã thay đổi URL sang Google Apps Script của bạn
+const API_URL = 'https://script.google.com/macros/s/AKfycbzoezQ3ZFbdMvFIlG8pYI7UE9sU0USkzboC0X9oENxuHZBeU5KOCfzaMQ06-VyxP3Jq/exec';
 const PRODUCTS_KEY = 'bepngon_products';
 
 const STATUSES = {
@@ -217,7 +218,7 @@ let currentSection = 'dashboard';
 let newOrderIds = new Set();
 let isSyncing = false;
 
-// ====== STORAGE (Products keeps using LocalStorage for simplicity) ======
+// ====== STORAGE ======
 function getProducts(){ try{ return JSON.parse(localStorage.getItem(PRODUCTS_KEY)||'null') || DEFAULT_PRODUCTS; }catch(e){ return DEFAULT_PRODUCTS; } }
 function saveProducts(p){ localStorage.setItem(PRODUCTS_KEY, JSON.stringify(p)); }
 
@@ -261,9 +262,8 @@ async function syncOrders() {
   try {
     const res = await fetch(API_URL);
     const data = await res.json();
-    const fetchedOrders = data.map(sheetToOrder).reverse(); // Mới nhất lên đầu
+    const fetchedOrders = data.map(sheetToOrder).reverse(); 
     
-    // Phát hiện đơn mới
     const currentIds = new Set(fetchedOrders.map(o=>o.id));
     const prevIds = new Set(globalOrders.map(o=>o.id));
     let hasNew = false;
@@ -292,24 +292,26 @@ async function syncOrders() {
   }
 }
 
-// Cập nhật trạng thái ngược lên Google Sheet
+// Cập nhật trạng thái bằng phương thức POST gửi action: "update" cho Apps Script
 async function updateStatus(id, status, shipperName) {
-  const bodyData = { trang_thai: STATUS_VI[status] };
+  const bodyData = { 
+    action: "update",
+    id: id,
+    trang_thai: STATUS_VI[status] 
+  };
   if(shipperName !== undefined) bodyData.shipper = shipperName;
 
   showToast('Đang lưu thay đổi...', 'warning');
 
   try {
-    await fetch(`${API_URL}/id/${id}`, {
-      method: 'PATCH',
+    await fetch(API_URL, {
+      method: 'POST', // Đổi từ PATCH sang POST
       headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
+        'Content-Type': 'text/plain;charset=utf-8' // Thêm header này để tránh lỗi CORS
       },
-      body: JSON.stringify({ data: bodyData })
+      body: JSON.stringify(bodyData)
     });
     
-    // Cập nhật giao diện lập tức
     const o = globalOrders.find(x => x.id === id);
     if(o){
       o.status = status;
@@ -579,7 +581,6 @@ function assignAndDispatch(id){
 }
 
 // ====== PRODUCTS ======
-// Note: Quản lý sản phẩm tạm thời vẫn sử dụng LocalStorage do SheetDB yêu cầu cấu hình thêm 1 tab riêng biệt.
 function renderProducts(){
   const products = getProducts();
   document.getElementById('mainContent').innerHTML = `
@@ -721,7 +722,7 @@ function deleteProduct(id){
 // ====== KHỞI CHẠY LẦN ĐẦU ======
 syncOrders();
 
-// Tự động kiểm tra đơn mới mỗi 15 giây (Tránh bị giới hạn API)
+// Tự động kiểm tra đơn mới mỗi 15 giây
 setInterval(syncOrders, 15000);
 
 </script>
