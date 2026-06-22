@@ -182,8 +182,7 @@ body{font-family:'Be Vietnam Pro',sans-serif;background:var(--gray-light);color:
 <div class="toast" id="toast"></div>
 
 <script>
-// ====== CONFIG & CONSTANTS ======
-// Đã thay đổi URL sang Google Apps Script của bạn
+// ====== CONFIG ======
 const API_URL = 'https://script.google.com/macros/s/AKfycbzoezQ3ZFbdMvFIlG8pYI7UE9sU0USkzboC0X9oENxuHZBeU5KOCfzaMQ06-VyxP3Jq/exec';
 const PRODUCTS_KEY = 'bepngon_products';
 
@@ -261,10 +260,12 @@ async function syncOrders() {
 
   try {
     const res = await fetch(API_URL);
-    const data = await res.json();
+    const text = await res.text();
+    if(text.includes("<html") || text.includes("<body")) throw new Error("Chưa cấp quyền Anyone");
+
+    const data = JSON.parse(text);
     const fetchedOrders = data.map(sheetToOrder).reverse(); 
     
-    const currentIds = new Set(fetchedOrders.map(o=>o.id));
     const prevIds = new Set(globalOrders.map(o=>o.id));
     let hasNew = false;
     
@@ -285,14 +286,14 @@ async function syncOrders() {
 
   } catch (error) {
     console.error("Lỗi đồng bộ:", error);
-    showToast('Lỗi khi tải dữ liệu từ Sheet!', 'error');
+    showToast('Lỗi lấy dữ liệu: ' + error.message, 'error');
   } finally {
     isSyncing = false;
     document.getElementById('btnSync').textContent = '🔄 Làm mới';
   }
 }
 
-// Cập nhật trạng thái bằng phương thức POST gửi action: "update" cho Apps Script
+// Cập nhật trạng thái bằng POST gửi body JSON string thông thường (không headers)
 async function updateStatus(id, status, shipperName) {
   const bodyData = { 
     action: "update",
@@ -304,13 +305,13 @@ async function updateStatus(id, status, shipperName) {
   showToast('Đang lưu thay đổi...', 'warning');
 
   try {
-    await fetch(API_URL, {
-      method: 'POST', // Đổi từ PATCH sang POST
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8' // Thêm header này để tránh lỗi CORS
-      },
+    const res = await fetch(API_URL, {
+      method: 'POST',
       body: JSON.stringify(bodyData)
     });
+    
+    const text = await res.text();
+    if(text.includes("<html") || text.includes("<body")) throw new Error("Chưa cấp quyền Anyone");
     
     const o = globalOrders.find(x => x.id === id);
     if(o){
@@ -324,7 +325,7 @@ async function updateStatus(id, status, shipperName) {
 
   } catch (e) {
     console.error("Lỗi cập nhật API:", e);
-    showToast('Cập nhật thất bại!', 'error');
+    showToast('Lỗi mạng hoặc phân quyền!', 'error');
   }
 }
 
